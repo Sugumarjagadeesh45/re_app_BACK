@@ -1,14 +1,19 @@
 const UserData = require('../models/UserData');
 const User = require('../models/userModel');
 
-// Get user profile data
+// Get user profile data - Enhanced with better logging
 const getUserProfile = async (req, res) => {
   try {
+    console.log('Get user profile request for userId:', req.user.id);
+
     const userData = await UserData.findOne({ userId: req.user.id })
       .populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete');
     
+    console.log('Found userData:', userData);
+
     if (!userData) {
       // Create initial user data if doesn't exist
+      console.log('No userData found, creating new one...');
       const newUserData = new UserData({
         userId: req.user.id
       });
@@ -17,12 +22,19 @@ const getUserProfile = async (req, res) => {
       const populatedData = await UserData.findById(newUserData._id)
         .populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete');
       
+      console.log('Created new userData:', populatedData);
+      
       return res.json({
         success: true,
         user: populatedData.userId,
         userData: populatedData
       });
     }
+
+    console.log('Returning existing userData:', {
+      user: userData.userId,
+      userData: userData
+    });
 
     res.json({
       success: true,
@@ -34,7 +46,6 @@ const getUserProfile = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
-
 // Update user profile
 const updateUserProfile = async (req, res) => {
   try {
@@ -97,19 +108,23 @@ const uploadProfilePicture = async (req, res) => {
     }
 
     // Update user's photoURL
-    await User.findByIdAndUpdate(req.user.id, { photoURL: profilePicture });
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id, 
+      { photoURL: profilePicture },
+      { new: true }
+    );
 
     // Update userData profilePicture
     const userData = await UserData.findOneAndUpdate(
       { userId: req.user.id },
       { $set: { profilePicture: profilePicture } },
-      { new: true, upsert: true }
+      { new: true, upsert: true, setDefaultsOnInsert: true }
     ).populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete');
 
     res.json({
       success: true,
       message: 'Profile picture updated successfully',
-      user: userData.userId,
+      user: updatedUser, // Use the updated user object
       userData: userData
     });
   } catch (error) {
@@ -117,7 +132,6 @@ const uploadProfilePicture = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
-
 // Get user stats
 const getUserStats = async (req, res) => {
   try {
