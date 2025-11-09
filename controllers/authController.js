@@ -4,6 +4,10 @@ const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
 const User = require('../models/userModel');
 
+
+const UserIdService = require('../services/userIdService');
+
+
 const generateToken = (user) => {
   return jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
 };
@@ -15,16 +19,115 @@ const createTransporter = async () => {
       user: process.env.GMAIL_EMAIL,
       pass: process.env.GMAIL_PASSWORD,
     },
+    // Add these security options
+    secure: true,
+    tls: {
+      rejectUnauthorized: false
+    },
+    debug: true, // Enable debug mode
+    logger: true // Enable logger
   });
+};
+
+
+const checkUserId = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User ID is required' 
+      });
+    }
+    
+    // Validate custom user ID format
+    if (!UserIdService.validateCustomUserId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID must be at least 6 characters, contain at least one number, and no special characters'
+      });
+    }
+    
+    // Check availability
+    const isAvailable = await UserIdService.isUserIdAvailable(userId);
+    
+    if (!isAvailable) {
+      return res.status(400).json({
+        success: false,
+        message: 'This User ID is already taken. Please enter another one.'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'User ID is available'
+    });
+  } catch (error) {
+    console.error('Check user ID error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
+  }
+};
+
+// New method to generate user ID
+const generateUserId = async (req, res) => {
+  try {
+    const userId = await UserIdService.generateUserId();
+    
+    res.json({
+      success: true,
+      userId: userId
+    });
+  } catch (error) {
+    console.error('Generate user ID error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to generate User ID' 
+    });
+  }
 };
 
 const sendOTPEmail = async (req, res) => {
   try {
     const { email, name, otp } = req.body;
+    
+    console.log('Attempting to send OTP email to:', email);
+    
     if (!email || !otp) {
-      return res.status(400).json({ message: 'Email and OTP are required' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Email and OTP are required' 
+      });
     }
-    const transporter = await createTransporter();
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format'
+      });
+    }
+
+    let transporter;
+    try {
+      transporter = await createTransporter();
+      
+      // Verify transporter configuration
+      await transporter.verify();
+      console.log('Email transporter verified successfully');
+      
+    } catch (transporterError) {
+      console.error('Email transporter configuration error:', transporterError);
+      return res.status(500).json({ 
+        success: false,
+        message: 'Email service configuration error. Please check your email settings.'
+      });
+    }
+
     const mailOptions = {
       from: `"Reals TO Chat" <${process.env.GMAIL_EMAIL}>`,
       to: email,
@@ -44,40 +147,86 @@ const sendOTPEmail = async (req, res) => {
               <div style="font-size: 36px; font-weight: bold; color: #FF0050; letter-spacing: 8px; margin: 15px 0;">${otp}</div>
               <p style="margin: 15px 0 0 0; font-size: 14px;">This OTP is valid for <strong>10 minutes</strong> only.</p>
             </div>
-            <div style="background-color: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0;">
-              <p style="margin: 0;"><strong>Security Tip:</strong> Never share this OTP with anyone. Our team will never ask for your OTP.</p>
-            </div>
-            <p>If you didn't request this verification, please ignore this email or contact our support team immediately.</p>
-            <p>Need help? Contact our support team at <a href="mailto:support@realstochat.com">support@realstochat.com</a></p>
+            <p>If you didn't request this verification, please ignore this email.</p>
             <p>Thank you,<br>The Reals TO Chat Team</p>
-          </div>
-          <div style="background-color: 'rgba(255, 255, 255, 0.1)'; padding: 20px; text-align: center; font-size: 14px; color: #6c757d; border-radius: 0 0 8px 8px;">
-            <p style="margin: 0;">© 2023 Reals TO Chat. All rights reserved.</p>
-            <p style="margin: 10px 0 0 0;">This email was sent to ${email}. If you believe this was sent in error, please contact us.</p>
           </div>
         </div>
       `,
     };
-    await transporter.sendMail(mailOptions);
-    res.json({ success: true, message: 'OTP email sent successfully' });
+
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      console.log('OTP email sent successfully to:', email);
+      console.log('Message ID:', info.messageId);
+      
+      res.json({ 
+        success: true, 
+        message: 'OTP email sent successfully',
+        messageId: info.messageId // Optional: return message ID for tracking
+      });
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      
+      // More specific error messages
+      let errorMessage = 'Failed to send OTP email. Please try again.';
+      
+      if (emailError.code === 'EAUTH') {
+        errorMessage = 'Email authentication failed. Please check your email configuration.';
+      } else if (emailError.code === 'EENVELOPE') {
+        errorMessage = 'Invalid email address. Please check the email and try again.';
+      } else if (emailError.code === 'ECONNECTION') {
+        errorMessage = 'Unable to connect to email service. Please check your internet connection.';
+      }
+      
+      res.status(500).json({ 
+        success: false,
+        message: errorMessage
+      });
+    }
   } catch (error) {
-    console.error('Nodemailer error:', error);
-    res.status(500).json({ message: 'Failed to send OTP email' });
+    console.error('Send OTP email error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error while sending OTP'
+    });
   }
 };
 
 const register = async (req, res) => {
   try {
-    const { name, phoneNumber, phone, email, password, dateOfBirth, gender, isPhoneVerified, isEmailVerified } = req.body;
+    const { 
+      name, 
+      phoneNumber, 
+      phone, 
+      email, 
+      password, 
+      dateOfBirth, 
+      gender, 
+      isPhoneVerified, 
+      isEmailVerified,
+      userId
+    } = req.body;
     
     const actualPhoneNumber = phoneNumber || phone;
     const emailLower = email.toLowerCase();
     
-    console.log(`Registration attempt for email: ${emailLower}, phone: ${actualPhoneNumber}`);
+    console.log(`Registration attempt for email: ${emailLower}, phone: ${actualPhoneNumber}, userId: ${userId}`);
     
-    if (!name || !email || !dateOfBirth || !gender) {
+    if (!name || !email || !dateOfBirth || !gender || !userId) {
       console.log('Missing required fields');
-      return res.status(400).json({ success: false, message: 'Name, email, date of birth, and gender are required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Name, email, date of birth, gender, and user ID are required' 
+      });
+    }
+    
+    // Check if user ID is available
+    const isUserIdAvailable = await UserIdService.isUserIdAvailable(userId);
+    if (!isUserIdAvailable) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is already taken'
+      });
     }
     
     const existingUserByEmail = await User.findOne({ email: emailLower });
@@ -94,16 +243,13 @@ const register = async (req, res) => {
       }
     }
     
-    let hashedPassword;
-    if (password) {
-      hashedPassword = await bcrypt.hash(password, 10);
-    }
-    
+    // REMOVE manual password hashing - let the model handle it
     const newUser = new User({
       name,
       phone: actualPhoneNumber,
       email: emailLower,
-      password: hashedPassword,
+      password: password, // Store plain password - model will hash it
+      userId: userId.toUpperCase().trim(),
       dateOfBirth,
       gender,
       isPhoneVerified: isPhoneVerified || false,
@@ -112,7 +258,7 @@ const register = async (req, res) => {
     });
     
     await newUser.save();
-    console.log(`User registered successfully: ${emailLower}`);
+    console.log(`User registered successfully: ${emailLower} with ID: ${userId}`);
     
     const token = generateToken(newUser);
     res.status(201).json({
@@ -120,6 +266,7 @@ const register = async (req, res) => {
       token,
       user: {
         id: newUser._id,
+        userId: newUser.userId,
         name: newUser.name,
         email: newUser.email,
         phone: newUser.phone,
@@ -135,6 +282,8 @@ const register = async (req, res) => {
         message = 'Email already in use';
       } else if (error.keyPattern && error.keyPattern.phone) {
         message = 'Phone number already in use';
+      } else if (error.keyPattern && error.keyPattern.userId) {
+        message = 'User ID already in use';
       }
       console.log(`Duplicate key error: ${message}`);
       return res.status(400).json({ success: false, message });
@@ -149,6 +298,38 @@ const register = async (req, res) => {
   }
 };
 
+
+const resetPassword = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    
+    if (!email || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Email and new password are required' });
+    }
+    
+    const emailLower = email.toLowerCase();
+    const user = await User.findOne({ email: emailLower });
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    // Set the plain password - model will hash it once
+    user.password = newPassword;
+    await user.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+
+// Update googleSignIn to generate user ID
 const googleSignIn = async (req, res) => {
   try {
     const { name, email, phone, phoneNumber, photoURL, dateOfBirth, gender, idToken } = req.body;
@@ -164,7 +345,7 @@ const googleSignIn = async (req, res) => {
     if (user) {
       // Update existing user with Google info
       if (idToken && !user.googleId) {
-        user.googleId = idToken; // Store the ID token as googleId
+        user.googleId = idToken;
       }
       user.name = name || user.name;
       user.photoURL = photoURL || user.photoURL;
@@ -186,6 +367,7 @@ const googleSignIn = async (req, res) => {
         token,
         user: {
           id: user._id,
+          userId: user.userId, // Include userId
           name: user.name,
           email: user.email,
           phone: user.phone,
@@ -193,7 +375,8 @@ const googleSignIn = async (req, res) => {
         },
       });
     } else {
-      // Create new user
+      // Create new user with generated user ID
+      const generatedUserId = await UserIdService.generateUserId();
       const randomPassword = Math.random().toString(36).slice(2);
       const hashedPassword = await bcrypt.hash(randomPassword, 10);
       
@@ -202,17 +385,18 @@ const googleSignIn = async (req, res) => {
         email: emailLower,
         phone: actualPhoneNumber,
         password: hashedPassword,
+        userId: generatedUserId, // Add generated user ID
         photoURL,
         dateOfBirth: dateOfBirth || new Date(),
         gender: gender || 'other',
         googleId: idToken || null,
         isEmailVerified: true,
         isPhoneVerified: false,
-        registrationComplete: false,
+        registrationComplete: false, // Set to false to show profile completion modal
       });
       
       await newUser.save();
-      console.log(`New user created via Google sign-in: ${emailLower}`);
+      console.log(`New user created via Google sign-in: ${emailLower} with ID: ${generatedUserId}`);
       
       const token = generateToken(newUser);
       return res.json({
@@ -220,6 +404,7 @@ const googleSignIn = async (req, res) => {
         token,
         user: {
           id: newUser._id,
+          userId: newUser.userId, // Include userId
           name: newUser.name,
           email: newUser.email,
           phone: newUser.phone,
@@ -236,6 +421,8 @@ const googleSignIn = async (req, res) => {
         message = 'Email already in use';
       } else if (error.keyPattern && error.keyPattern.phone) {
         message = 'Phone number already in use';
+      } else if (error.keyPattern && error.keyPattern.userId) {
+        message = 'User ID conflict, please try again';
       }
       return res.status(400).json({ success: false, message });
     }
@@ -249,6 +436,7 @@ const googleSignIn = async (req, res) => {
   }
 };
 
+// Update verifyPhone to generate user ID
 const verifyPhone = async (req, res) => {
   try {
     const { phoneNumber, phone } = req.body;
@@ -263,13 +451,17 @@ const verifyPhone = async (req, res) => {
     let user = await User.findOne({ phone: actualPhoneNumber });
     
     if (!user) {
+      // Generate user ID for new phone user
+      const generatedUserId = await UserIdService.generateUserId();
+      
       user = new User({
         phone: actualPhoneNumber,
+        userId: generatedUserId, // Add generated user ID
         isPhoneVerified: true,
         registrationComplete: false,
       });
       await user.save();
-      console.log(`New user created for phone: ${actualPhoneNumber}`);
+      console.log(`New user created for phone: ${actualPhoneNumber} with ID: ${generatedUserId}`);
     }
     
     const token = generateToken(user);
@@ -278,6 +470,7 @@ const verifyPhone = async (req, res) => {
       token,
       user: {
         id: user._id,
+        userId: user.userId, // Include userId
         name: user.name,
         email: user.email,
         phone: user.phone,
@@ -513,6 +706,7 @@ const login = async (req, res) => {
       token,
       user: {
         id: user._id,
+         userId: user.userId,
         name: user.name,
         email: user.email,
         phone: user.phone,
@@ -534,6 +728,7 @@ const logout = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
 
 const setPassword = async (req, res) => {
   try {
@@ -558,7 +753,15 @@ const setPassword = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      message: 'Password set successfully'
+      message: 'Password set successfully',
+      user: { // ✅ Return user data with userId
+        id: user._id,
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        registrationComplete: user.registrationComplete,
+      }
     });
   } catch (error) {
     console.error('Set password error:', error);
@@ -573,6 +776,10 @@ module.exports = {
   verifyPhone,
   updateProfile,
   googlePhone,
+    checkUserId,
+  generateUserId,
+
+    resetPassword,
   checkGoogleConfig: async (req, res) => {
     try {
       const hasClientId = !!process.env.GOOGLE_CLIENT_ID;

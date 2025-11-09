@@ -6,6 +6,14 @@ const protect = require('../middleware/auth');
 console.log('authController:', Object.keys(authController));
 console.log('authController.googlePhone:', authController.googlePhone);
 
+
+router.post('/check-user-id', authController.checkUserId);
+router.get('/generate-user-id', authController.generateUserId);
+
+
+router.post('/reset-password', authController.resetPassword);
+
+
 router.post('/register', authController.register);
 router.post('/verify-phone', authController.verifyPhone);
 router.post('/update-profile', protect, authController.updateProfile);
@@ -15,7 +23,7 @@ router.post('/login', authController.login);
 router.post('/logout', protect, authController.logout);
 router.post('/check-user', authController.checkUser);
 router.post('/send-otp-email', authController.sendOTPEmail);
-router.post('/set-password', authController.setPassword); // Add this line
+router.post('/set-password', authController.setPassword);
 router.get('/profile', protect, authController.getUserProfile);
 router.get('/me', protect, (req, res) => {
   res.json(req.user);
