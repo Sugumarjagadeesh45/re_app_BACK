@@ -7,7 +7,7 @@ const getUserProfile = async (req, res) => {
     console.log('Get user profile request for userId:', req.user.id);
 
     const userData = await UserData.findOne({ userId: req.user.id })
-      .populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete');
+      .populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete userId');
     
     console.log('Found userData:', userData);
 
@@ -20,7 +20,7 @@ const getUserProfile = async (req, res) => {
       await newUserData.save();
       
       const populatedData = await UserData.findById(newUserData._id)
-        .populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete');
+        .populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete userId');
       
       console.log('Created new userData:', populatedData);
       
@@ -84,7 +84,7 @@ const updateUserProfile = async (req, res) => {
       { userId: req.user.id },
       { $set: userDataUpdate },
       { new: true, upsert: true, setDefaultsOnInsert: true }
-    ).populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete');
+    ).populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete userId');
 
     res.json({
       success: true,
@@ -107,19 +107,18 @@ const uploadProfilePicture = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Profile picture is required' });
     }
 
-    // Update user's photoURL
     const updatedUser = await User.findByIdAndUpdate(
-      req.user.id, 
-      { photoURL: profilePicture },
-      { new: true }
-    );
+  req.user.id, 
+  { photoURL: profilePicture },
+  { new: true, select: 'name email phone dateOfBirth gender photoURL registrationComplete userId' }
+);
 
     // Update userData profilePicture
     const userData = await UserData.findOneAndUpdate(
       { userId: req.user.id },
       { $set: { profilePicture: profilePicture } },
       { new: true, upsert: true, setDefaultsOnInsert: true }
-    ).populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete');
+    ).populate('userId', 'name email phone dateOfBirth gender photoURL registrationComplete userId');
 
     res.json({
       success: true,
