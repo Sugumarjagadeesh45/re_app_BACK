@@ -60,23 +60,27 @@ const UserDataSchema = new mongoose.Schema(
 // Index for faster queries
 UserDataSchema.index({ userId: 1 });
 
+
 // Virtual for profile completion percentage
 UserDataSchema.virtual('profileCompletion').get(function() {
-  let completion = 0;
+  const interestsLength = Array.isArray(this.interests) ? this.interests.length : 0;
+
   const fields = [
     this.profilePicture,
     this.bio,
     this.location,
-    this.interests.length
+    interestsLength
   ];
-  
+
   const completedFields = fields.filter(field => {
+    if (typeof field === 'number') return field > 0;
     if (Array.isArray(field)) return field.length > 0;
     return field && field.toString().trim().length > 0;
   }).length;
-  
+
   return Math.round((completedFields / fields.length) * 100);
 });
+
 
 // Ensure virtual fields are serialized
 UserDataSchema.set('toJSON', { virtuals: true });
