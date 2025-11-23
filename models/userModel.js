@@ -36,7 +36,8 @@ const UserSchema = new mongoose.Schema(
       unique: true,
       required: true,
       trim: true,
-      uppercase: true
+      uppercase: true,
+      sparse: true 
       // Remove index: true if you have it here
     },
     dateOfBirth: {
