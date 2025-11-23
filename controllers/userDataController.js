@@ -1,3 +1,4 @@
+// D:\reals2chat_backend-main\controllers\userDataController.js
 const UserData = require('../models/UserData');
 const User = require('../models/userModel');
 
@@ -49,6 +50,65 @@ const getUserProfile = async (req, res) => {
     res.json(responseData);
   } catch (error) {
     console.error('Get user profile error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+
+// D:\reals2chat_backend-main\controllers\userDataController.js
+
+// Search users
+const searchUsers = async (req, res) => {
+  try {
+    console.log('Search request received:', req.query);
+    // Fix: Extract 'q' parameter and assign it to 'query' variable
+    const { q: query, filter } = req.query;
+    
+    if (!query || query.length < 1) {
+      console.log('Search query is empty or too short');
+      return res.status(400).json({ success: false, message: 'Search query is required' });
+    }
+
+    // Build search criteria based on filter
+    let searchCriteria = {};
+    
+    if (filter === 'name') {
+      searchCriteria = { name: { $regex: query, $options: 'i' } };
+    } else if (filter === 'email') {
+      searchCriteria = { email: { $regex: query, $options: 'i' } };
+    } else if (filter === 'phone') {
+      searchCriteria = { phone: { $regex: query, $options: 'i' } };
+    } else if (filter === 'userId') {
+      searchCriteria = { userId: { $regex: query, $options: 'i' } };
+    } else {
+      // Search across all fields
+      searchCriteria = {
+        $or: [
+          { name: { $regex: query, $options: 'i' } },
+          { email: { $regex: query, $options: 'i' } },
+          { phone: { $regex: query, $options: 'i' } },
+          { userId: { $regex: query, $options: 'i' } },
+        ],
+      };
+    }
+    
+    // Exclude current user
+    searchCriteria._id = { $ne: req.user.id };
+    
+    console.log('Search criteria:', JSON.stringify(searchCriteria));
+    
+    const users = await User.find(searchCriteria)
+      .select('name email userId photoURL phone')
+      .limit(20);
+    
+    console.log(`Found ${users.length} users`);
+
+    res.json({
+      success: true,
+      users: users,
+    });
+  } catch (error) {
+    console.error('Search users error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -166,33 +226,6 @@ const getUserStats = async (req, res) => {
   }
 };
 
-// Search users
-const searchUsers = async (req, res) => {
-  try {
-    const { query } = req.query;
-    
-    if (!query || query.length < 2) {
-      return res.status(400).json({ success: false, message: 'Search query must be at least 2 characters' });
-    }
-
-    const users = await User.find({
-      $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { email: { $regex: query, $options: 'i' } }
-      ],
-      _id: { $ne: req.user.id }
-    }).select('name email photoURL').limit(20);
-
-    res.json({
-      success: true,
-      users: users
-    });
-  } catch (error) {
-    console.error('Search users error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-};
-
 module.exports = {
   getUserProfile,
   updateUserProfile,
@@ -200,7 +233,6 @@ module.exports = {
   getUserStats,
   searchUsers
 };
-
 
 
 // const UserData = require('../models/UserData');
