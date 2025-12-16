@@ -42,6 +42,8 @@ class UserIdService {
     return true;
   }
 
+
+  
   // Check if user ID already exists
   static async isUserIdAvailable(userId) {
     if (!userId) return false;
