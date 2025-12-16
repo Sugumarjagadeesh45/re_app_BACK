@@ -32,6 +32,16 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // ✅ Connect to MongoDB
 connectDB();
 
+
+
+
+// Add this after other route imports
+const friendsRoutes = require('./routes/friendsRoutes');
+
+// Add this after other app.use() calls
+app.use('/api/friends', friendsRoutes);
+
+
 // ✅ Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userDataRoutes);
